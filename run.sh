@@ -11,6 +11,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 PORT="${PORT:-8080}"
+HOST="${HOST:-127.0.0.1}"   # set HOST=0.0.0.0 to expose on your network
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 die() { printf '\n\033[31mError: %s\033[0m\n' "$1" >&2; exit 1; }
@@ -46,4 +47,4 @@ cat <<BANNER
 BANNER
 
 exec ./.venv/bin/python -m uvicorn app.main:app \
-  --app-dir backend --host 127.0.0.1 --port "${PORT}"
+  --app-dir backend --host "${HOST}" --port "${PORT}"
