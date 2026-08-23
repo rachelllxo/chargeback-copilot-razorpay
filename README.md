@@ -22,7 +22,16 @@ CASE → RETRIEVE → INVESTIGATE → CORRELATE → RECONSTRUCT → DETECT
 
 ## Running it
 
-Two processes: a FastAPI backend and a Vite dev server that proxies `/api` to it.
+One command — builds the app and serves it, API included, on a single port:
+
+```bash
+./run.sh                 # → http://localhost:8080
+PORT=3000 ./run.sh       # or pick your own port
+```
+
+<details>
+<summary>Manual setup, or two-process development with hot reload</summary>
+
 
 ```bash
 # backend  (http://localhost:8000)
@@ -34,7 +43,9 @@ cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 
 cd frontend && npm install && npm run dev
 ```
 
-Interactive API docs are served at `http://localhost:8000/docs`.
+</details>
+
+Interactive API docs are served at `/docs` on whichever port the API is running.
 
 ## Deploying
 
