@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'tnum';
+  }
+
+  ::selection {
+    background: #dfe8e1;
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent/60 ring-offset-2 ring-offset-canvas;
+  }
+
+  th {
+    font-weight: 500;
+  }
+}
+
+@layer components {
+  .label {
+    @apply text-2xs font-semibold uppercase tracking-label text-ink-3;
+  }
+
+  .section-title {
+    @apply text-[0.8125rem] font-semibold uppercase tracking-label text-ink-2;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card {
+    @apply rounded-md border border-line bg-surface shadow-card;
+  }
+
+  .divide-rule {
+    @apply border-t border-line;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded border px-3 py-1.5 text-sm font-medium
+           transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn border-accent bg-accent text-white hover:bg-[#274d3d];
+  }
+
+  .btn-secondary {
+    @apply btn border-line-strong bg-surface text-ink hover:bg-raised;
+  }
+
+  .btn-ghost {
+    @apply btn border-transparent bg-transparent text-ink-2 hover:bg-raised hover:text-ink;
+  }
+
+  .field {
+    @apply w-full rounded border border-line bg-surface px-2.5 py-1.5 text-sm text-ink
+           placeholder:text-ink-3 focus:border-line-strong;
+  }
+
+  .row-link {
+    @apply cursor-pointer transition-colors duration-100 hover:bg-raised/70;
+  }
+
+  .meter {
+    @apply h-1.5 w-full overflow-hidden rounded-full bg-line;
+  }
+}
+
+/* Subtle, purposeful motion only. */
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-in {
+  animation: fade-rise 0.18s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

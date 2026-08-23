@@ -1,0 +1,161 @@
+# Chargeback Copilot
+
+**Evidence-backed chargeback investigation & dispute intelligence.**
+
+A merchant-side dispute investigation workspace. When a chargeback arrives, the information needed to
+answer it is scattered across payments, orders, fulfilment, delivery, refunds, customer conversations and
+prior disputes. Chargeback Copilot retrieves those records, correlates them, reconstructs what actually
+happened, flags contradictions and missing artefacts, and produces an explainable recommendation plus a
+submission-ready evidence package — with a human making the final call.
+
+> **Demo environment · synthetic data.** This prototype is not connected to any real payment processor,
+> acquirer or card network. No evidence is fabricated and no financial action is irreversible.
+
+---
+
+## The workflow
+
+```
+CASE → RETRIEVE → INVESTIGATE → CORRELATE → RECONSTRUCT → DETECT
+     → ASSESS → EXPLAIN → RECOMMEND → GENERATE → HUMAN APPROVAL
+```
+
+## Running it
+
+Two processes: a FastAPI backend and a Vite dev server that proxies `/api` to it.
+
+```bash
+# backend  (http://localhost:8000)
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# frontend (http://localhost:5173)
+cd frontend && npm install && npm run dev
+```
+
+Interactive API docs are served at `http://localhost:8000/docs`.
+
+## Architecture
+
+```
+backend/app/
+  data.py        Synthetic dataset: 14 cases, each with its own evidence relationships
+  engine.py      Investigation orchestrator + 11 functional modules, correlation,
+                 timeline reconstruction, conflict detection, gap analysis, scoring
+  ai_service.py  AIService abstraction: investigate / correlate / assess / explain /
+                 package / copilot. Deterministic; degrades gracefully with no LLM
+  store.py       SQLite (PostgreSQL when DATABASE_URL is set) for operator decisions
+  main.py        FastAPI routes
+
+frontend/src/
+  pages/         Dashboard, Disputes, DisputeDetail, Investigations, Evidence,
+                 Analytics, Policies, Settings
+  components/    AppShell, EvidenceDrawer (provenance), Copilot, EvidencePackage, ui
+  lib/           API client with loading/error/empty handling, types, formatters
+```
+
+### Investigation modules
+
+`Transaction · Order · Fulfillment · Delivery · Customer · Refund · Historical · Policy`
+followed by `Evidence Correlation · Timeline Reconstruction · Conflict Detection · Risk Synthesis`.
+
+Each module returns a structured finding:
+
+```json
+{
+  "finding": "Order marked delivered.",
+  "evidence_ids": ["EVD-1042"],
+  "relevance": "high",
+  "supports": "merchant"
+}
+```
+
+### How the numbers are derived
+
+Nothing is hard-coded per case. Every evidence record carries a relevance (high/medium/low) and an
+availability (available/partial/unavailable) that produce a weight, plus an impact direction
+(merchant / cardholder / contextual).
+
+- **Evidence completeness** = available weight ÷ (available weight + weight of identified gaps)
+- **Net direction** = (merchant weight − cardholder weight) ÷ total directional weight
+- **Recommendation** — `CONTEST` above +0.35, `ACCEPT` below −0.35, otherwise `HUMAN_REVIEW`;
+  a missing mandatory artefact or completeness under 62% always forces `HUMAN_REVIEW`
+- **Confidence** = 0.60 × |net direction| + 0.40 × completeness − gap penalty (a different formula
+  expresses confidence that human judgement is required for `HUMAN_REVIEW` cases)
+
+The flagship case CB-2026-89101 therefore computes to **CONTEST · 94% confidence · 91% completeness**
+from its evidence alone. Change the evidence and the recommendation changes with it.
+
+### Contradiction detection
+
+Contradictions are only raised from the records themselves, never invented:
+
+1. **Claim versus recorded event** — the cardholder denies an event that high-relevance merchant
+   evidence proves occurred (non-receipt against an OTP-verified delivery, for example).
+2. **Conflicting internal records** — an explicit contradiction edge between two evidence records
+   (ordered SKU versus the SKU the warehouse actually scanned).
+3. **Record mismatch** — an inconsistency inside a single record (delivery scanned at flat 903 for an
+   order addressed to apartment 902).
+
+Where no contradiction exists the case says so: *No material contradictions detected.*
+
+## The demo cases
+
+| Case | Scenario | Computed outcome |
+| --- | --- | --- |
+| CB-2026-89101 | Non-receipt, delivered, customer then reports damage | Contest · 94% · contradiction |
+| CB-2026-89102 | Booked installation never performed | Accept / refund |
+| CB-2026-89103 | Ordered SKU ≠ dispatched SKU | Human review · internal conflict |
+| CB-2026-89104 | Tracking stops at the hub, no POD | Human review · blocking gap |
+| CB-2026-89105 | Card-absent fraud, AVS mismatch, new device | Accept / refund |
+| CB-2026-89106 | Merchant cancelled, refund failed and never retried | Accept / refund |
+| CB-2026-89107 | Partial return, ₹4,600 already credited | Contest on reconciliation |
+| CB-2026-89108 | Non-receipt against OTP + signed POD + 5★ rating | Contest · 96% |
+| CB-2026-89109 | "Charged twice" — one settled capture, one void | Contest |
+| CB-2026-89110 | Cancellation tap, app crash, renewal billed | Human review |
+| CB-2026-89111 | High-value parcel signed for at the wrong flat | Human review |
+| CB-2026-89112 | Configured sofa, signed delivery acceptance | Contest · no contradictions |
+| CB-2026-89094 / 89088 | Closed cases retained for analytics | Won / Accepted |
+
+## API
+
+| Method | Endpoint |
+| --- | --- |
+| GET | `/api/dashboard` |
+| GET | `/api/disputes` (search + status, reason, recommendation, amount, completeness, deadline filters) |
+| GET | `/api/disputes/{id}` |
+| GET | `/api/disputes/{id}/timeline` |
+| GET | `/api/disputes/{id}/evidence` |
+| POST | `/api/disputes/{id}/investigate` |
+| GET | `/api/disputes/{id}/assessment` |
+| POST | `/api/disputes/{id}/evidence-package` |
+| POST | `/api/disputes/{id}/copilot` |
+| POST | `/api/disputes/{id}/decision` |
+| GET | `/api/analytics` · `/api/policies` · `/api/settings` · `/api/meta` · `/health` |
+
+## Copilot
+
+The copilot is contextual to the open case and answers strictly from its investigation state — the
+assessment, evidence records, conflicts, gaps, timeline, deadline and applicable policy. Anything outside
+that returns *"That evidence is not available in this case."* It cites evidence IDs, and every citation is
+clickable through to the underlying record.
+
+## Verification
+
+```bash
+cd frontend
+npm run build     # type-check + production build
+npm run smoke     # mounts the built bundle in jsdom against the API and checks every route
+```
+
+`npm run smoke` requires both servers to be running; it asserts that all nine routes render real content
+with no runtime errors.
+
+## Notes on data & safety
+
+- Policy knowledge is kept visually and structurally distinct from case evidence; a policy never
+  evidences that an event occurred.
+- Recommendations are advisory. Approve / edit / escalate is recorded against the case and no submission
+  or refund is executed.
+- No API keys, secrets or environment values are returned by the API or rendered in the client.
