@@ -1,0 +1,17 @@
+# One-click deploy on Render — https://render.com/deploy
+services:
+  - type: web
+    name: chargeback-copilot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: CHARGEBACK_COPILOT_DB
+        value: /data/copilot.db
+    disk:
+      name: decisions
+      mountPath: /data
+      sizeGB: 1

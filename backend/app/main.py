@@ -6,12 +6,17 @@ real payment processor, acquirer or card network.
 
 from __future__ import annotations
 
+import os
 from collections import Counter, defaultdict
+from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import store
@@ -19,25 +24,32 @@ from .ai_service import ai_service
 from .data import CASES, CASE_INDEX, CLOSED_STATUSES, MERCHANT, NOW, POLICIES
 from .engine import fmt_amount, state_for
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    store.init_db()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Chargeback Copilot API",
     description="Evidence-backed chargeback investigation and dispute intelligence. Synthetic demo data.",
     version="1.0.0",
 )
+# In production the SPA is served by this same app, so no cross-origin access is
+# needed. ALLOWED_ORIGINS opts specific origins in (comma separated) for split
+# deployments; the default of "*" keeps local development with the Vite dev
+# server working. No credentials are ever accepted cross-origin.
+_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 api = APIRouter(prefix="/api")
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    store.init_db()
 
 
 # ---------------------------------------------------------------------------
@@ -482,3 +494,26 @@ app.include_router(api)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "environment": "demo", "data": "synthetic"}
+
+
+# ---------------------------------------------------------------------------
+# Single-service production mode: serve the built SPA from this app.
+# Falls back cleanly to API-only when the frontend has not been built.
+# ---------------------------------------------------------------------------
+
+STATIC_DIR = Path(
+    os.getenv("STATIC_DIR", Path(__file__).resolve().parents[2] / "frontend" / "dist")
+)
+
+if STATIC_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str) -> FileResponse:
+        """Serve static files, falling back to index.html for client-side routes."""
+        if full_path.startswith(("api/", "health", "docs", "openapi.json")):
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = (STATIC_DIR / full_path).resolve()
+        if full_path and candidate.is_file() and candidate.is_relative_to(STATIC_DIR.resolve()):
+            return FileResponse(candidate)
+        return FileResponse(STATIC_DIR / "index.html")

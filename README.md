@@ -36,6 +36,45 @@ cd frontend && npm install && npm run dev
 
 Interactive API docs are served at `http://localhost:8000/docs`.
 
+## Deploying
+
+The production image is a **single service**: the SPA is built and served by the FastAPI app, so there is
+one port, one process and no CORS to configure.
+
+```bash
+docker build -t chargeback-copilot .
+docker run -p 8080:8080 -v cc-data:/data chargeback-copilot   # → http://localhost:8080
+```
+
+Ready-made configs are committed for the common platforms — all of them build the same `Dockerfile`:
+
+| Platform | Command | Config |
+| --- | --- | --- |
+| Render | New → Blueprint, point at this repo | `render.yaml` |
+| Fly.io | `fly launch --copy-config --now` | `fly.toml` |
+| Railway / Heroku | detected automatically | `Procfile` |
+| Any container host | `docker build . && docker run -p 8080:8080` | `Dockerfile` |
+
+**Environment variables** (all optional):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `8080` | Listen port |
+| `STATIC_DIR` | `frontend/dist` | Built SPA to serve; unset it to run API-only |
+| `CHARGEBACK_COPILOT_DB` | `backend/copilot.db` | SQLite decision store — put it on a mounted volume |
+| `DATABASE_URL` | — | Set a `postgres://…` URL to report PostgreSQL as the decision store |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated origins, for split frontend/backend deploys |
+
+There are no secrets to configure: the app holds no keys and talks to no third-party service.
+Approvals recorded in the demo live in SQLite, so mount `/data` if you want them to survive a restart.
+
+Running without Docker (single service):
+
+```bash
+cd frontend && npm ci && npm run build && cd ..
+.venv/bin/python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8080
+```
+
 ## Architecture
 
 ```
@@ -144,13 +183,28 @@ clickable through to the underlying record.
 ## Verification
 
 ```bash
-cd frontend
-npm run build     # type-check + production build
-npm run smoke     # mounts the built bundle in jsdom against the API and checks every route
+.venv/bin/python -m pytest backend/tests -q   # 24 API + engine tests
+cd frontend && npm run build                  # type-check + production build
+cd frontend && npm run smoke                  # renders every route in jsdom against the API
 ```
 
-`npm run smoke` requires both servers to be running; it asserts that all nine routes render real content
-with no runtime errors.
+The backend suite asserts the things that matter: that assessments are derived from evidence weights
+rather than hard-coded, that a missing mandatory artefact forces human review, that contradictions appear
+only where records disagree, that the copilot refuses questions it cannot evidence, and that no secret-like
+key is ever present in an API response. `npm run smoke` needs both servers running and checks that all
+nine routes render real content with no runtime errors.
+
+A ready-to-use GitHub Actions pipeline lives at `ci/github-actions-ci.yml` — it runs the backend suite,
+the type-check and build, then builds the production Docker image and curls the running container.
+Enable it with:
+
+```bash
+mkdir -p .github/workflows && cp ci/github-actions-ci.yml .github/workflows/ci.yml
+git add .github && git commit -m "Enable CI" && git push
+```
+
+(It ships outside `.github/` because the agent token that created this branch is not permitted to add
+workflow files to the repository.)
 
 ## Notes on data & safety
 
