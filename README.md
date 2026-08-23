@@ -61,7 +61,7 @@ Ready-made configs are committed for the common platforms — all of them build 
 
 | Platform | Command | Config |
 | --- | --- | --- |
-| Render | New → Blueprint, point at this repo | `render.yaml` |
+| Render | New → Blueprint, point at this repo (free plan) | `render.yaml` |
 | Fly.io | `fly launch --copy-config --now` | `fly.toml` |
 | Railway / Heroku | detected automatically | `Procfile` |
 | Any container host | `docker build . && docker run -p 8080:8080` | `Dockerfile` |
@@ -72,7 +72,7 @@ Ready-made configs are committed for the common platforms — all of them build 
 | --- | --- | --- |
 | `PORT` | `8080` | Listen port |
 | `STATIC_DIR` | `frontend/dist` | Built SPA to serve; unset it to run API-only |
-| `CHARGEBACK_COPILOT_DB` | `backend/copilot.db` | SQLite decision store — put it on a mounted volume |
+| `CHARGEBACK_COPILOT_DB` | `backend/copilot.db` | SQLite decision store — put it on a mounted volume to persist approvals |
 | `DATABASE_URL` | — | Set a `postgres://…` URL to report PostgreSQL as the decision store |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated origins, for split frontend/backend deploys |
 
