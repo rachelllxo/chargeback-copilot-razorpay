@@ -4,10 +4,10 @@ import type { EvidencePackage, PackageSection } from '../lib/types'
 import { ErrorBlock, Modal, Pill, Spinner, useToast } from './ui'
 
 interface PackageCtx {
-  open: () => void
+  generate: () => void
 }
 
-const Ctx = createContext<PackageCtx>({ open: () => {} })
+const Ctx = createContext<PackageCtx>({ generate: () => {} })
 
 export const usePackage = () => useContext(Ctx)
 
@@ -85,9 +85,9 @@ function toPlainText(pkg: EvidencePackage): string {
 }
 
 export function EvidencePackageButton() {
-  const { open } = usePackage()
+  const { generate } = usePackage()
   return (
-    <button type="button" className="btn-primary" onClick={open}>
+    <button type="button" className="btn-primary" onClick={generate}>
       Generate evidence package
     </button>
   )
@@ -131,7 +131,7 @@ export function PackageProvider({ disputeId, children }: { disputeId: string; ch
   }
 
   return (
-    <Ctx.Provider value={{ open: () => setOpen(true) }}>
+    <Ctx.Provider value={{ generate }}>
       {children}
       <Modal
         open={open}

@@ -98,9 +98,10 @@ function AssessmentBlock({
 }) {
   const a = detail.assessment
   const tone = recommendationTone(a.recommendation)
-  const { open: openPackage } = usePackage()
+  const { generate: openPackage } = usePackage()
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const blockers = detail.gaps.filter((g) => g.impact === 'high' || g.weight >= 2)
 
   const scrollToEvidence = () => {
     document.getElementById('evidence-explorer')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -203,6 +204,29 @@ function AssessmentBlock({
           </div>
         </div>
       </div>
+
+      {/* BLOCKED BY MISSING ARTEFACTS — why HUMAN REVIEW, stated at the point of decision. */}
+      {a.blocking_gap && blockers.length > 0 && (
+        <div className="mt-6 rounded border border-critical/25 bg-critical-soft/40 px-4 py-3.5">
+          <p className="text-xs font-semibold uppercase tracking-label text-critical">
+            ⚠ Blocking — response cannot be finalised
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {blockers.map((g) => (
+              <li key={g.missing} className="flex items-baseline gap-2 text-sm text-ink-2">
+                <span className="text-critical" aria-hidden>
+                  ○
+                </span>
+                <span>
+                  {g.missing}
+                  {g.evidence_id && <EvidenceRef id={g.evidence_id} />}
+                  <span className="ml-1.5 text-2xs text-ink-3">{g.why_it_matters}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Why the completeness score is what it is: records on file vs records missing. */}
       {cd && (
@@ -837,17 +861,6 @@ export default function DisputeDetailPage() {
             </Section>
 
             <Section
-              title="AI case assessment"
-              description="Advisory recommendation derived from the correlated evidence. Every factor links to its record, and nothing is submitted without operator approval."
-            >
-              <AssessmentBlock
-                detail={detail}
-                disputeId={detail.dispute.dispute_id}
-                onRecorded={reload}
-              />
-            </Section>
-
-            <Section
               title="Claim versus evidence"
               description="What the customer states, set against what the records show."
             >
@@ -870,6 +883,38 @@ export default function DisputeDetailPage() {
                   </dl>
                 </div>
               </div>
+            </Section>
+
+            <Section
+              title="Evidence strength"
+              description="Operational completeness indicator per source — not a statistical certainty."
+              actions={
+                <span className="num text-sm text-ink-2">{detail.assessment.evidence_completeness}% complete</span>
+              }
+            >
+              <ul className="grid gap-x-10 gap-y-2.5 sm:grid-cols-2">
+                {detail.evidence_strength.map((s) => (
+                  <li key={s.category} className="flex items-center justify-between gap-4 border-b border-line/60 py-1.5">
+                    <span className="text-sm text-ink-2">{s.label}</span>
+                    <span className="flex items-center gap-3">
+                      <span className="w-24">
+                        <Meter
+                          value={Math.min(100, (s.score / 4) * 100)}
+                          tone={s.strength === 'Strong' ? 'positive' : s.strength === 'Moderate' ? 'caution' : 'neutral'}
+                        />
+                      </span>
+                      <span className="w-16 text-right text-sm text-ink">{s.strength}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+
+            <Section
+              title="Reconstructed timeline"
+              description="Events sequenced across payment, order, fulfilment, delivery, customer and dispute systems. Events carrying records implicated in a detected contradiction are marked."
+            >
+              <Timeline disputeId={detail.dispute.dispute_id} />
             </Section>
 
             <Section
@@ -909,35 +954,74 @@ export default function DisputeDetailPage() {
             </Section>
 
             <Section
-              title="Evidence strength"
-              description="Operational completeness indicator per source — not a statistical certainty."
-              actions={
-                <span className="num text-sm text-ink-2">{detail.assessment.evidence_completeness}% complete</span>
-              }
+              title="AI case assessment"
+              description="Advisory recommendation derived from the correlated evidence. Every factor links to its record, and nothing is submitted without operator approval."
             >
-              <ul className="grid gap-x-10 gap-y-2.5 sm:grid-cols-2">
-                {detail.evidence_strength.map((s) => (
-                  <li key={s.category} className="flex items-center justify-between gap-4 border-b border-line/60 py-1.5">
-                    <span className="text-sm text-ink-2">{s.label}</span>
-                    <span className="flex items-center gap-3">
-                      <span className="w-24">
-                        <Meter
-                          value={Math.min(100, (s.score / 4) * 100)}
-                          tone={s.strength === 'Strong' ? 'positive' : s.strength === 'Moderate' ? 'caution' : 'neutral'}
-                        />
-                      </span>
-                      <span className="w-16 text-right text-sm text-ink">{s.strength}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <AssessmentBlock
+                detail={detail}
+                disputeId={detail.dispute.dispute_id}
+                onRecorded={reload}
+              />
             </Section>
 
             <Section
-              title="Reconstructed timeline"
-              description="Events sequenced across payment, order, fulfilment, delivery, customer and dispute systems. Events carrying records implicated in a detected contradiction are marked."
+              id="evidence-explorer"
+              title="Evidence provenance"
+              description="The records behind this recommendation — what supports it, what contradicts it, and what is missing."
             >
-              <Timeline disputeId={detail.dispute.dispute_id} />
+              <div className="grid gap-6 lg:grid-cols-3">
+                <div>
+                  <p className="mb-2 text-xs font-medium text-positive">Supports the recommendation</p>
+                  <ul className="space-y-1.5">
+                    {detail.assessment.supporting_factors.slice(0, 4).map((f) => (
+                      <li key={f.evidence_id} className="flex items-baseline gap-2 text-sm text-ink-2">
+                        <EvidenceRef id={f.evidence_id} />
+                        <span>{f.text}</span>
+                      </li>
+                    ))}
+                    {detail.assessment.supporting_factors.length === 0 && (
+                      <li className="text-sm text-ink-3">No merchant-supporting record exists.</li>
+                    )}
+                  </ul>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-medium text-caution">Weakens the recommendation</p>
+                  <ul className="space-y-1.5">
+                    {detail.assessment.contradicting_factors.slice(0, 4).map((f) => (
+                      <li key={f.evidence_id} className="flex items-baseline gap-2 text-sm text-ink-2">
+                        <EvidenceRef id={f.evidence_id} />
+                        <span>{f.text}</span>
+                      </li>
+                    ))}
+                    {detail.assessment.contradicting_factors.length === 0 && (
+                      <li className="text-sm text-ink-3">No record contradicts the merchant position.</li>
+                    )}
+                  </ul>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-medium text-ink-2">Conflicts & gaps considered</p>
+                  <ul className="space-y-1.5 text-sm text-ink-3">
+                    {detail.explanation.conflicts_considered.map((c) => (
+                      <li key={c} className="flex items-baseline gap-2">
+                        <span className="text-caution" aria-hidden>⚠</span>
+                        <span>Contradiction {c} included in the assessment.</span>
+                      </li>
+                    ))}
+                    {detail.explanation.conflicts_considered.length === 0 && (
+                      <li className="text-sm">No contradiction was detected.</li>
+                    )}
+                    {detail.gaps.map((g) => (
+                      <li key={g.missing} className="flex items-baseline gap-2">
+                        <span aria-hidden>○</span>
+                        <span>
+                          {g.missing}
+                          {g.evidence_id && <EvidenceRef id={g.evidence_id} />}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </Section>
 
             <Section
@@ -948,33 +1032,6 @@ export default function DisputeDetailPage() {
               {ev.loading && <LoadingBlock label="Loading evidence" />}
               {ev.error && <ErrorBlock message={ev.error} onRetry={ev.reload} />}
               {!ev.loading && !ev.error && <EvidenceExplorer evidence={evidence} />}
-            </Section>
-
-            <Section
-              title="Evidence provenance"
-              description="The records the recommendation rests on."
-            >
-              <div className="rounded border border-line px-4 py-3.5">
-                <p className="text-sm text-ink-2">
-                  Recommendation{' '}
-                  <span className="font-semibold text-ink">{detail.assessment.recommendation_label}</span> is
-                  supported by:
-                </p>
-                <ul className="mt-2.5 space-y-1.5">
-                  {detail.assessment.supporting_factors.slice(0, 4).map((f) => (
-                    <li key={f.evidence_id} className="flex items-baseline gap-2 text-sm text-ink-2">
-                      <EvidenceRef id={f.evidence_id} />
-                      <span>{f.text}</span>
-                    </li>
-                  ))}
-                  {detail.assessment.supporting_factors.length === 0 && (
-                    <li className="text-sm text-ink-3">
-                      No merchant-supporting record exists; the recommendation rests on the cardholder-supporting
-                      evidence listed above.
-                    </li>
-                  )}
-                </ul>
-              </div>
             </Section>
 
             <Section title="Merchant argument" description="Drafted from the evidence on file.">

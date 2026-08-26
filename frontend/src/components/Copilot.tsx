@@ -36,7 +36,7 @@ export function Copilot({
       setEntries((e) => e.map((x, i) => (i === e.length - 1 ? { ...x, error: message } : x)))
     } finally {
       setBusy(false)
-      requestAnimationFrame(() => listRef.current?.scrollTo({ top: 1e6, behavior: 'smooth' }))
+      requestAnimationFrame(() => listRef.current?.scrollTo?.({ top: 1e6, behavior: 'smooth' }))
     }
   }
 
