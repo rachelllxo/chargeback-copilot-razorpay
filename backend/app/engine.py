@@ -172,14 +172,14 @@ def customer_investigation(case: dict) -> dict:
     supports = _dominant(e) if e else "neutral"
     detail = [f"{parse(i['timestamp']).strftime('%d %b, %H:%M')} · {i['channel']} · {i['message']}"
               for i in interactions]
-    return _module("customer", "Customer Investigation", finding, e, "medium", supports, detail)
+    return _module("customer", "Customer Interaction Analysis", finding, e, "medium", supports, detail)
 
 
 def historical_investigation(case: dict) -> dict:
     e = by_category(case["evidence"], "historical")
     finding = e[0]["finding"] if e else "No historical dispute record was retrieved for this customer."
     supports = _dominant(e) if e else "neutral"
-    return _module("historical", "Historical Investigation", finding, e, "low", supports,
+    return _module("historical", "Historical Case Analysis", finding, e, "low", supports,
                    [f"{x['evidence_id']} · {x['description']}" for x in e])
 
 
@@ -256,6 +256,29 @@ def correlate_evidence(case: dict, modules: list[dict]) -> dict:
         for eid in ev_["evidence_ids"]:
             event_links.setdefault(eid, []).append(ev_["title"])
 
+    # Explicit provenance links between records: contradiction edges from the
+    # dataset, shared timeline events, and records cited in the same conflict.
+    related: dict[str, list[dict[str, str]]] = {}
+
+    def relate(a: str, b: str, kind: str) -> None:
+        if not a or not b or a == b:
+            return
+        if not any(r["evidence_id"] == b for r in related.setdefault(a, [])):
+            related[a].append({"evidence_id": b, "relationship": kind})
+        if not any(r["evidence_id"] == a for r in related.setdefault(b, [])):
+            related[b].append({"evidence_id": a, "relationship": kind})
+
+    for rel in _relationships(case):
+        relate(rel["from"], rel["to"], rel["type"])
+    for ev_ in case["events"]:
+        ids_ = ev_["evidence_ids"]
+        for a in ids_:
+            for b in ids_:
+                relate(a, b, "corroborates")
+    for e in evidence:
+        for other_id in e.get("conflicts_with", []):
+            relate(e["evidence_id"], other_id, "contradicts")
+
     correlated = []
     for eid, e in seen.items():
         correlated.append({
@@ -263,6 +286,7 @@ def correlate_evidence(case: dict, modules: list[dict]) -> dict:
             "weight": round(weight(e), 2),
             "referenced_by": referenced.get(eid, []),
             "linked_events": event_links.get(eid, []),
+            "related": related.get(eid, []),
         })
     correlated.sort(key=lambda x: (-x["weight"], x["evidence_id"]))
 
@@ -308,6 +332,28 @@ def reconstruct_timeline(case: dict) -> list[dict]:
     return out
 
 
+def _conflict_confidence(severity: str) -> int:
+    return {"high": 88, "medium": 72, "low": 55}[severity]
+
+
+def _cite(e: dict) -> str:
+    """One auditable sentence for a record, used inside conflict interpretations."""
+    when = ""
+    if e.get("timestamp"):
+        when = f" on {datetime.fromisoformat(e['timestamp']).strftime('%d %b %Y at %H:%M')}"
+    return f"the {e['source']} record {e['evidence_id']}{when} shows “{e['finding']}”"
+
+
+def _interpret_claim(dispute: dict, proving: list[dict], corroborating: list[dict]) -> str:
+    cited = " while ".join(_cite(e) for e in (proving[:2] + corroborating[:1]))
+    cited = cited[0].upper() + cited[1:]
+    return (
+        f"The available evidence conflicts with the stated claim. {cited}. These records come from "
+        "independent systems and are consistent with each other, but not with the claim as filed — so "
+        "the cardholder's version of events is not supported by the case record."
+    )
+
+
 def detect_conflicts(case: dict) -> list[dict]:
     """Conflicts come only from the records: claim-vs-proven-event, explicit
     contradiction edges between evidence, and record-level mismatches."""
@@ -323,9 +369,12 @@ def detect_conflicts(case: dict) -> list[dict]:
                    if e["category"] in cats and e["impact"] == "merchant"
                    and e["relevance"] == "high" and e["availability"] == "available"]
         if proving:
-            corroborating = [e for e in case["evidence"]
-                             if e["category"] in {"customer", "communication"}
-                             and e["impact"] == "merchant" and e["availability"] == "available"]
+            corroborating = sorted(
+                [e for e in case["evidence"]
+                 if e["category"] in {"customer", "communication"}
+                 and e["impact"] == "merchant" and e["availability"] == "available"],
+                key=lambda e: -weight(e),
+            )
             lines = [{"label": "Customer claim", "value": dispute["claim"], "evidence_id": None}]
             for e in proving:
                 lines.append({"label": e["evidence_type"], "value": e["finding"],
@@ -338,7 +387,11 @@ def detect_conflicts(case: dict) -> list[dict]:
                 "conflict_id": f"CFL-{dispute['dispute_id'][-3:]}-1",
                 "type": "Claim versus recorded event",
                 "severity": severity,
+                "confidence": _conflict_confidence(severity),
+                "relevance": severity,
+                "claim": dispute["claim"],
                 "summary": "Potential contradiction detected.",
+                "interpretation": _interpret_claim(dispute, proving, corroborating),
                 "lines": lines,
                 "why_it_matters": (
                     "The evidence indicates the disputed event did occur, which is inconsistent with the "
@@ -353,11 +406,20 @@ def detect_conflicts(case: dict) -> list[dict]:
             other = evidence.get(other_id)
             if not other:
                 continue
+            severity = e.get("conflict_severity", "high")
             conflicts.append({
                 "conflict_id": f"CFL-{dispute['dispute_id'][-3:]}-{len(conflicts) + 1}",
                 "type": "Conflicting internal records",
-                "severity": e.get("conflict_severity", "high"),
+                "severity": severity,
+                "confidence": _conflict_confidence(severity),
+                "relevance": severity,
+                "claim": dispute["claim"],
                 "summary": e.get("conflict_summary", "Two records of this case disagree."),
+                "interpretation": (
+                    f"Two merchant records disagree on a material fact: {_cite(other)} while "
+                    f"{_cite(e)}. At least one of these records is unreliable, so the response must "
+                    "not be built on either record alone."
+                ),
                 "lines": [
                     {"label": other["evidence_type"], "value": other["finding"],
                      "evidence_id": other["evidence_id"]},
@@ -375,11 +437,19 @@ def detect_conflicts(case: dict) -> list[dict]:
     for e in case["evidence"]:
         mm = e.get("mismatch")
         if mm:
+            severity = mm.get("severity", "medium")
             conflicts.append({
                 "conflict_id": f"CFL-{dispute['dispute_id'][-3:]}-{len(conflicts) + 1}",
                 "type": "Record mismatch",
-                "severity": mm.get("severity", "medium"),
+                "severity": severity,
+                "confidence": _conflict_confidence(severity),
+                "relevance": severity,
+                "claim": dispute["claim"],
                 "summary": mm["summary"],
+                "interpretation": (
+                    f"A single record carries an internal inconsistency: {_cite(e)}. The record needs "
+                    "verification before it is relied on."
+                ),
                 "lines": [{"label": e["evidence_type"], "value": e["finding"],
                            "evidence_id": e["evidence_id"]}],
                 "why_it_matters": mm["why"],
@@ -476,6 +546,26 @@ def assess_case(case: dict, conflicts: list[dict], gaps: list[dict]) -> dict:
         key=lambda e: -weight(e),
     )
 
+    # What actually makes up the headline completeness figure: the record types
+    # that are on file (deduplicated, strongest first) and the ones that are not.
+    available_pts = sorted(
+        [e for e in evidence if e["availability"] != "unavailable"],
+        key=lambda e: -weight(e),
+    )
+    seen_types: dict[str, dict] = {}
+    for e in available_pts:
+        seen_types.setdefault(e["evidence_type"], {
+            "name": e["evidence_type"], "evidence_id": e["evidence_id"], "source": e["source"],
+        })
+    completeness_detail = {
+        "score": round(completeness * 100),
+        "available": list(seen_types.values()),
+        "missing": [
+            {"name": g["missing"], "evidence_id": g.get("evidence_id"),
+             "availability": g["availability"]} for g in gaps
+        ],
+    }
+
     return {
         "recommendation": recommendation,
         "recommendation_label": {
@@ -483,6 +573,7 @@ def assess_case(case: dict, conflicts: list[dict], gaps: list[dict]) -> dict:
         }[recommendation],
         "confidence": round(confidence * 100),
         "evidence_completeness": round(completeness * 100),
+        "completeness_detail": completeness_detail,
         "case_strength": strength,
         "merchant_weight": round(merchant, 2),
         "customer_weight": round(customer, 2),
@@ -552,6 +643,18 @@ def investigate_case(dispute_id: str) -> dict:
     assessment = assess_case(case, conflicts, gaps)
     explanation = explain_decision(case, assessment, conflicts, gaps)
 
+    # Link every record that participates in a detected contradiction to the
+    # other records in the same conflict, so each record can be traced to its
+    # analytical context even when no explicit edge exists in the dataset.
+    index = {e["evidence_id"]: e for e in correlation["evidence"]}
+    for c in conflicts:
+        for a in c["evidence_ids"]:
+            for b in c["evidence_ids"]:
+                if a != b and b in index:
+                    rec = index[a]
+                    if not any(r["evidence_id"] == b for r in rec["related"]):
+                        rec["related"].append({"evidence_id": b, "relationship": "contradiction"})
+
     modules = modules + [
         _module("correlation", "Evidence Correlation",
                 f"{correlation['unique_evidence']} unique evidence records correlated from "
@@ -560,15 +663,21 @@ def investigate_case(dispute_id: str) -> dict:
         _module("timeline", "Timeline Reconstruction",
                 f"{len(timeline)} events sequenced from "
                 f"{len({e['source'] for e in timeline})} systems.", [], "high", "neutral"),
-        _module("conflict", "Conflict Detection",
+        _module("conflict", "Contradiction Detection",
                 (f"{len(conflicts)} potential contradiction(s) detected."
                  if conflicts else "No material contradictions detected."), [], "high",
                 "merchant" if conflicts and assessment["recommendation"] == "CONTEST" else "neutral"),
-        _module("risk", "Risk Synthesis",
+        _module("risk", "Risk Assessment",
                 f"Recommendation {assessment['recommendation_label']} at {assessment['confidence']}% "
                 f"confidence with {assessment['evidence_completeness']}% evidence completeness.",
                 [], "high", "neutral"),
     ]
+
+    # Flag timeline events that carry records implicated in a detected
+    # contradiction, so the narrative can point at them without hiding the rest.
+    conflict_ids = {eid for c in conflicts for eid in c["evidence_ids"]}
+    for t in timeline:
+        t["conflicting"] = bool(set(t["evidence_ids"]) & conflict_ids)
 
     return {
         "dispute": case["dispute"],

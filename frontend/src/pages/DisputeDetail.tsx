@@ -9,7 +9,7 @@ import {
   impactTone,
   useEvidence,
 } from '../components/EvidenceDrawer'
-import { EvidencePackagePanel } from '../components/EvidencePackage'
+import { EvidencePackageButton, PackageProvider, usePackage } from '../components/EvidencePackage'
 import {
   EmptyBlock,
   ErrorBlock,
@@ -87,102 +87,175 @@ function CaseHeader({ detail }: { detail: Detail }) {
 
 /* -------------------------------------------------------------- assessment */
 
-function AssessmentBlock({ detail }: { detail: Detail }) {
+function AssessmentBlock({
+  detail,
+  disputeId,
+  onRecorded,
+}: {
+  detail: Detail
+  disputeId: string
+  onRecorded: () => void
+}) {
   const a = detail.assessment
   const tone = recommendationTone(a.recommendation)
+  const { open: openPackage } = usePackage()
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const scrollToEvidence = () => {
+    document.getElementById('evidence-explorer')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const requestReview = async () => {
+    setBusy(true)
+    try {
+      await api.post(`/api/disputes/${disputeId}/decision`, { action: 'request_review' })
+      toast('Escalated for senior human review', 'caution')
+      onRecorded()
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not record the request.', 'critical')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cd = a.completeness_detail
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,20rem)_1fr]">
-      <div>
-        <p className="label">Recommendation</p>
-        <p
-          className={`mt-1.5 text-2xl font-semibold uppercase tracking-tight ${
-            tone === 'positive' ? 'text-positive' : tone === 'caution' ? 'text-caution' : 'text-info'
-          }`}
-        >
-          {a.recommendation_label}
-        </p>
-        <dl className="mt-5 space-y-3.5">
-          <div>
+    <div>
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,20rem)_1fr]">
+        <div>
+          <p className="label">Recommendation</p>
+          <p
+            className={`mt-1.5 text-2xl font-semibold uppercase tracking-tight ${
+              tone === 'positive' ? 'text-positive' : tone === 'caution' ? 'text-caution' : 'text-info'
+            }`}
+          >
+            {a.recommendation_label}
+          </p>
+          <dl className="mt-5 space-y-3.5">
+            <div>
+              <div className="flex items-baseline justify-between text-sm">
+                <dt className="text-ink-2">Confidence</dt>
+                <dd className="num font-medium">{a.confidence}%</dd>
+              </div>
+              <div className="mt-1.5">
+                <Meter value={a.confidence} tone={tone} />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-baseline justify-between text-sm">
+                <dt className="text-ink-2">Evidence completeness</dt>
+                <dd className="num font-medium">{a.evidence_completeness}%</dd>
+              </div>
+              <div className="mt-1.5">
+                <Meter value={a.evidence_completeness} tone="accent" />
+              </div>
+            </div>
             <div className="flex items-baseline justify-between text-sm">
-              <dt className="text-ink-2">Confidence</dt>
-              <dd className="num font-medium">{a.confidence}%</dd>
+              <dt className="text-ink-2">Case strength</dt>
+              <dd className="font-medium">{a.case_strength}</dd>
             </div>
-            <div className="mt-1.5">
-              <Meter value={a.confidence} tone={tone} />
+          </dl>
+          <p className="mt-4 border-t border-line pt-3 text-2xs leading-relaxed text-ink-3">{detail.explanation.method}</p>
+        </div>
+
+        <div>
+          <p className="label">Why</p>
+          <p className="mt-1.5 max-w-2xl text-sm text-ink-2">{detail.explanation.headline}</p>
+
+          <div className="mt-5 grid gap-6 md:grid-cols-2">
+            <div>
+              <p className="mb-2 text-xs font-medium text-positive">Supporting evidence · merchant position</p>
+              <ul className="space-y-2">
+                {a.supporting_factors.map((f) => (
+                  <li key={f.evidence_id} className="flex gap-2 text-sm text-ink-2">
+                    <span className="mt-px text-positive" aria-hidden>
+                      ✓
+                    </span>
+                    <span>
+                      {f.text} <EvidenceRef id={f.evidence_id} />
+                    </span>
+                  </li>
+                ))}
+                {a.supporting_factors.length === 0 && (
+                  <li className="text-sm text-ink-3">No evidence supports the merchant position.</li>
+                )}
+              </ul>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-medium text-caution">Contradicting / risk evidence · cardholder position</p>
+              <ul className="space-y-2">
+                {a.contradicting_factors.map((f) => (
+                  <li key={f.evidence_id} className="flex gap-2 text-sm text-ink-2">
+                    <span className="mt-px text-caution" aria-hidden>
+                      ⚠
+                    </span>
+                    <span>
+                      {f.text} <EvidenceRef id={f.evidence_id} />
+                    </span>
+                  </li>
+                ))}
+                {a.contradicting_factors.length === 0 && (
+                  <li className="text-sm text-ink-3">No evidence contradicts the merchant position.</li>
+                )}
+              </ul>
             </div>
           </div>
-          <div>
-            <div className="flex items-baseline justify-between text-sm">
-              <dt className="text-ink-2">Evidence completeness</dt>
-              <dd className="num font-medium">{a.evidence_completeness}%</dd>
-            </div>
-            <div className="mt-1.5">
-              <Meter value={a.evidence_completeness} tone="accent" />
-            </div>
-          </div>
-          <div className="flex items-baseline justify-between text-sm">
-            <dt className="text-ink-2">Case strength</dt>
-            <dd className="font-medium">{a.case_strength}</dd>
-          </div>
-        </dl>
-        <p className="mt-4 border-t border-line pt-3 text-2xs leading-relaxed text-ink-3">{detail.explanation.method}</p>
+        </div>
       </div>
 
-      <div>
-        <p className="label">Why</p>
-        <p className="mt-1.5 max-w-2xl text-sm text-ink-2">{detail.explanation.headline}</p>
-
-        <div className="mt-5 grid gap-6 md:grid-cols-2">
+      {/* Why the completeness score is what it is: records on file vs records missing. */}
+      {cd && (
+        <div className="mt-6 grid gap-6 border-t border-line pt-5 md:grid-cols-2">
           <div>
-            <p className="mb-2 text-xs font-medium text-positive">Supporting factors · merchant position</p>
-            <ul className="space-y-2">
-              {a.supporting_factors.map((f) => (
-                <li key={f.evidence_id} className="flex gap-2 text-sm text-ink-2">
-                  <span className="mt-px text-positive" aria-hidden>
+            <p className="mb-2 text-xs font-medium text-ink-2">
+              {cd.score}% complete — available on file
+            </p>
+            <ul className="space-y-1.5">
+              {cd.available.map((r) => (
+                <li key={r.evidence_id} className="flex items-baseline gap-2 text-sm text-ink-2">
+                  <span className="text-positive" aria-hidden>
                     ✓
                   </span>
                   <span>
-                    {f.text} <EvidenceRef id={f.evidence_id} />
+                    {r.name} <EvidenceRef id={r.evidence_id} />
                   </span>
                 </li>
               ))}
-              {a.supporting_factors.length === 0 && (
-                <li className="text-sm text-ink-3">No evidence supports the merchant position.</li>
-              )}
             </ul>
           </div>
           <div>
-            <p className="mb-2 text-xs font-medium text-caution">Contradicting factors · cardholder position</p>
-            <ul className="space-y-2">
-              {a.contradicting_factors.map((f) => (
-                <li key={f.evidence_id} className="flex gap-2 text-sm text-ink-2">
-                  <span className="mt-px text-caution" aria-hidden>
-                    ⚠
-                  </span>
+            <p className="mb-2 text-xs font-medium text-caution">Missing — not in the merchant's records</p>
+            <ul className="space-y-1.5">
+              {cd.missing.map((g) => (
+                <li key={g.name} className="flex items-baseline gap-2 text-sm text-ink-3">
+                  <span aria-hidden>○</span>
                   <span>
-                    {f.text} <EvidenceRef id={f.evidence_id} />
+                    {g.name}
+                    {g.evidence_id && <EvidenceRef id={g.evidence_id} />}
+                    <span className="ml-1.5 text-2xs">{g.availability}</span>
                   </span>
                 </li>
               ))}
-              {a.contradicting_factors.length === 0 && (
-                <li className="text-sm text-ink-3">No evidence contradicts the merchant position.</li>
-              )}
+              {cd.missing.length === 0 && <li className="text-sm text-ink-3">No material records are missing.</li>}
             </ul>
           </div>
         </div>
+      )}
 
-        <div className="mt-6 border-t border-line pt-4">
-          <p className="mb-2 text-xs font-medium text-ink-2">Evidence gaps</p>
-          <ul className="space-y-1.5">
-            {detail.gaps.map((g) => (
-              <li key={g.missing} className="flex gap-2 text-sm text-ink-3">
-                <span aria-hidden>•</span>
-                <span>{g.missing}</span>
-              </li>
-            ))}
-            {detail.gaps.length === 0 && <li className="text-sm text-ink-3">No material gaps identified.</li>}
-          </ul>
-        </div>
+      <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-line pt-5">
+        <button type="button" className="btn-secondary" onClick={scrollToEvidence}>
+          View evidence
+        </button>
+        <button type="button" className="btn-primary" onClick={openPackage}>
+          Generate evidence package
+        </button>
+        <button type="button" className="btn-secondary" onClick={requestReview} disabled={busy}>
+          {busy && <Spinner />} Request human review
+        </button>
+        <span className="text-2xs text-ink-3">
+          Advisory only — no action is submitted without operator approval.
+        </span>
       </div>
     </div>
   )
@@ -313,7 +386,13 @@ function Timeline({ disputeId }: { disputeId: string }) {
             <div className="relative border-l border-line pb-1 pl-5">
               <span
                 className={`absolute -left-[4.5px] top-[1.15rem] h-2 w-2 rounded-full border-2 border-canvas ${
-                  e.actor === 'customer' ? 'bg-caution' : e.actor === 'issuer' ? 'bg-critical' : 'bg-accent'
+                  e.conflicting
+                    ? 'bg-caution'
+                    : e.actor === 'customer'
+                      ? 'bg-caution'
+                      : e.actor === 'issuer'
+                        ? 'bg-critical'
+                        : 'bg-accent'
                 }`}
                 aria-hidden
               />
@@ -325,7 +404,14 @@ function Timeline({ disputeId }: { disputeId: string }) {
                 onClick={() => clickable && setOpenIndex(expanded ? null : i)}
                 aria-expanded={clickable ? expanded : undefined}
               >
-                <p className="text-sm font-medium text-ink">{e.title}</p>
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
+                  <span>{e.title}</span>
+                  {e.conflicting && (
+                    <span className="rounded-sm border border-caution/25 bg-caution-soft px-1.5 py-px text-2xs font-medium text-caution">
+                      ⚠ part of contradiction
+                    </span>
+                  )}
+                </p>
                 {e.detail && <p className="mt-0.5 text-sm text-ink-2">{e.detail}</p>}
                 <p className="mt-1 text-xs text-ink-3">
                   Source: {e.source}
@@ -333,6 +419,13 @@ function Timeline({ disputeId }: { disputeId: string }) {
                     <span className="ml-2 text-accent">{expanded ? 'Hide evidence' : 'View evidence'}</span>
                   )}
                 </p>
+                {e.evidence_ids.length > 0 && (
+                  <p className="mt-1.5 flex flex-wrap gap-1">
+                    {e.evidence_ids.map((id) => (
+                      <EvidenceRef key={id} id={id} />
+                    ))}
+                  </p>
+                )}
               </button>
 
               {expanded && (
@@ -437,7 +530,31 @@ function EvidenceExplorer({ evidence }: { evidence: Evidence[] }) {
 
 /* ------------------------------------------------------------- contradictions */
 
-function Contradictions({ conflicts }: { conflicts: Conflict[] }) {
+function EvidenceCard({ id }: { id: string }) {
+  const { open, get } = useEvidence()
+  const e = get(id)
+  if (!e) return null
+  return (
+    <button
+      type="button"
+      onClick={() => open(id)}
+      className="rounded border border-line bg-raised/40 px-3.5 py-3 text-left transition-colors hover:border-accent/40 hover:bg-raised"
+    >
+      <p className="flex flex-wrap items-center gap-2">
+        <span className="num text-xs font-semibold text-ink">{e.evidence_id}</span>
+        <Pill tone={impactTone(e.impact)}>{impactLabel[e.impact]}</Pill>
+      </p>
+      <p className="mt-1 text-sm font-medium text-ink">{e.evidence_type}</p>
+      <p className="mt-0.5 text-2xs text-ink-3">
+        {e.source} · {e.timestamp ? dateTime(e.timestamp) : 'Not time-stamped'}
+      </p>
+      <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{e.finding}</p>
+      <p className="mt-1.5 text-2xs text-accent">Open record →</p>
+    </button>
+  )
+}
+
+function Contradictions({ conflicts, claim }: { conflicts: Conflict[]; claim: string }) {
   if (conflicts.length === 0) {
     return (
       <div className="flex items-center gap-2.5 rounded border border-line bg-positive-soft/40 px-4 py-3">
@@ -450,32 +567,56 @@ function Contradictions({ conflicts }: { conflicts: Conflict[] }) {
     )
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {conflicts.map((c) => (
         <article key={c.conflict_id} className="card overflow-hidden">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-caution-soft/40 px-4 py-2.5">
-            <p className="text-sm font-medium text-ink">{c.summary}</p>
+            <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <span className="text-caution" aria-hidden>
+                ⚠
+              </span>
+              Contradiction detected
+            </p>
             <div className="flex items-center gap-2">
               <Pill tone="neutral">{c.type}</Pill>
               <Pill tone={c.severity === 'high' ? 'critical' : 'caution'}>Severity: {c.severity}</Pill>
+              {typeof c.confidence === 'number' && (
+                <Pill tone="accent" dot>
+                  Confidence {c.confidence}%
+                </Pill>
+              )}
             </div>
           </header>
-          <dl className="divide-y divide-line/70">
-            {c.lines.map((l, i) => (
-              <div key={i} className="grid gap-1 px-4 py-2.5 sm:grid-cols-[12rem_1fr] sm:gap-4">
-                <dt className="text-xs text-ink-3">{l.label}</dt>
-                <dd className="text-sm text-ink-2">
-                  {l.value} {l.evidence_id && <EvidenceRef id={l.evidence_id} />}
-                </dd>
+
+          <div className="grid gap-6 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
+            <div>
+              <p className="label">Customer claim</p>
+              <blockquote className="mt-1.5 border-l-2 border-line-strong pl-3">
+                <p className="text-sm italic text-ink">“{c.claim ?? claim}”</p>
+              </blockquote>
+
+              <p className="label mb-2 mt-5">Evidence that contradicts the claim</p>
+              <div className="grid gap-3 md:grid-cols-2">
+                {c.evidence_ids.map((id) => (
+                  <EvidenceCard key={id} id={id} />
+                ))}
               </div>
-            ))}
-          </dl>
-          <footer className="border-t border-line bg-raised/40 px-4 py-2.5">
-            <p className="text-xs text-ink-2">
-              <span className="font-medium text-ink">Why it matters: </span>
-              {c.why_it_matters}
-            </p>
-          </footer>
+            </div>
+
+            <aside className="rounded border border-line bg-raised/40 p-4">
+              <p className="label">AI interpretation</p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-2">
+                {c.interpretation ?? c.why_it_matters}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3">
+                <Pill tone="neutral">Relevance: {c.relevance ?? 'high'}</Pill>
+                <Pill tone="accent">Auditable · every citation is a record</Pill>
+              </div>
+              <p className="mt-3 text-2xs leading-relaxed text-ink-3">
+                {c.why_it_matters}
+              </p>
+            </aside>
+          </div>
         </article>
       ))}
     </div>
@@ -650,22 +791,30 @@ export default function DisputeDetailPage() {
 
   return (
     <EvidenceProvider evidence={evidence}>
-      <AppShell
-        title={`${detail.dispute.dispute_id} · ${detail.dispute.customer_name}`}
-        subtitle={`${detail.dispute.reason} · ${inr(detail.dispute.amount)}`}
-        breadcrumb={
-          <span>
-            <Link to="/disputes" className="hover:underline">
-              Disputes
-            </Link>{' '}
-            / {detail.dispute.dispute_id}
-          </span>
-        }
-        actions={<EvidencePackagePanel disputeId={detail.dispute.dispute_id} />}
-      >
+      <PackageProvider disputeId={detail.dispute.dispute_id}>
+        <AppShell
+          title={`${detail.dispute.dispute_id} · ${detail.dispute.customer_name}`}
+          subtitle={`${detail.dispute.reason} · ${inr(detail.dispute.amount)}`}
+          breadcrumb={
+            <span>
+              <Link to="/disputes" className="hover:underline">
+                Disputes
+              </Link>{' '}
+              / {detail.dispute.dispute_id}
+            </span>
+          }
+          actions={<EvidencePackageButton />}
+        >
         <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-9">
             <CaseHeader detail={detail} />
+
+            <Section
+              title="Case investigation"
+              description="Functional modules that retrieved and analysed the case records. Their structured findings are the inputs to the assessment below."
+            >
+              <InvestigationProgress detail={detail} disputeId={detail.dispute.dispute_id} />
+            </Section>
 
             <Section title="Customer claim" description="The cardholder's stated reason for the chargeback.">
               <blockquote className="border-l-2 border-line-strong pl-4">
@@ -688,10 +837,14 @@ export default function DisputeDetailPage() {
             </Section>
 
             <Section
-              title="AI assessment"
-              description="Advisory recommendation derived from the correlated evidence. Every factor links to its record."
+              title="AI case assessment"
+              description="Advisory recommendation derived from the correlated evidence. Every factor links to its record, and nothing is submitted without operator approval."
             >
-              <AssessmentBlock detail={detail} />
+              <AssessmentBlock
+                detail={detail}
+                disputeId={detail.dispute.dispute_id}
+                onRecorded={reload}
+              />
             </Section>
 
             <Section
@@ -720,10 +873,10 @@ export default function DisputeDetailPage() {
             </Section>
 
             <Section
-              title="Contradictions"
-              description="Raised only where the records genuinely disagree."
+              title="Contradiction detection"
+              description="Raised only where the records genuinely disagree with the claim or with each other."
             >
-              <Contradictions conflicts={detail.conflicts} />
+              <Contradictions conflicts={detail.conflicts} claim={detail.dispute.claim} />
             </Section>
 
             <Section
@@ -778,20 +931,14 @@ export default function DisputeDetailPage() {
             </Section>
 
             <Section
-              title="Investigation progress"
-              description="Functional modules that retrieved and analysed the case records."
-            >
-              <InvestigationProgress detail={detail} disputeId={detail.dispute.dispute_id} />
-            </Section>
-
-            <Section
               title="Reconstructed timeline"
-              description="Events sequenced across payment, order, fulfilment, delivery, customer and dispute systems. Select an event to see its evidence."
+              description="Events sequenced across payment, order, fulfilment, delivery, customer and dispute systems. Events carrying records implicated in a detected contradiction are marked."
             >
               <Timeline disputeId={detail.dispute.dispute_id} />
             </Section>
 
             <Section
+              id="evidence-explorer"
               title="Evidence explorer"
               description="Every record retrieved for this case, with its source, impact and availability."
             >
@@ -888,7 +1035,8 @@ export default function DisputeDetailPage() {
             </div>
           </aside>
         </div>
-      </AppShell>
+        </AppShell>
+      </PackageProvider>
     </EvidenceProvider>
   )
 }

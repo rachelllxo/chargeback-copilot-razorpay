@@ -49,9 +49,10 @@ export default function Investigations() {
               ))}
             </ol>
             <p className="mt-3 max-w-3xl text-sm text-ink-3">
-              Eleven functional modules run per case — transaction, order, fulfilment, delivery, customer,
-              refund, historical and policy investigation, followed by evidence correlation, timeline
-              reconstruction, conflict detection and risk synthesis.
+              Twelve functional modules run per case — transaction, order, fulfilment, delivery, customer
+              interaction, refund, historical and policy investigation, followed by evidence correlation,
+              timeline reconstruction, contradiction detection and risk assessment. Each returns structured
+              findings; the assessment is assembled from those findings, not from a chat.
             </p>
           </div>
 

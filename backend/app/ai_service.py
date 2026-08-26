@@ -169,12 +169,12 @@ class AIService:
 
     # -- copilot ----------------------------------------------------------
     SUGGESTIONS = [
-        "Why should I contest this?",
+        "Why are you recommending contest?",
         "What is the strongest evidence?",
         "What contradicts the customer's claim?",
         "What evidence is missing?",
-        "Show me the timeline.",
-        "What should I include in the response?",
+        "Show me the case timeline.",
+        "Generate my response.",
         "What could weaken this case?",
     ]
 
@@ -197,6 +197,9 @@ class AIService:
                 else (a["supporting_factors"], a["contradicting_factors"])
             )
             lines = [state["explanation"]["headline"]]
+            if a["recommendation"] == "CONTEST" and state["conflicts"]:
+                conflict = state["conflicts"][0]
+                lines.append(conflict.get("interpretation") or conflict["why_it_matters"])
             for f in primary[:4]:
                 lines.append(f"• {f['text']} [{f['evidence_id']}]")
             if secondary:
@@ -225,7 +228,12 @@ class AIService:
                                     [], state)
             lines = []
             for c in state["conflicts"]:
-                lines.append(f"{c['type']} — severity {c['severity']}: {c['summary']}")
+                lines.append(
+                    f"{c['type']} — severity {c['severity']}, "
+                    f"confidence {c.get('confidence', 'n/a')}%: {c['summary']}"
+                )
+                if c.get("interpretation"):
+                    lines.append(f"Interpretation: {c['interpretation']}")
                 for l in c["lines"]:
                     tag = f" [{l['evidence_id']}]" if l["evidence_id"] else ""
                     lines.append(f"• {l['label']}: {l['value']}{tag}")

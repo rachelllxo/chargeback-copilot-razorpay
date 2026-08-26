@@ -462,7 +462,7 @@ def settings() -> dict[str, Any]:
         "investigation": [
             {"key": "auto_investigate", "label": "Investigate on dispute receipt", "enabled": True,
              "detail": "Runs all modules as soon as a dispute is ingested"},
-            {"key": "modules", "label": "Active investigation modules", "value": "11 of 11"},
+            {"key": "modules", "label": "Active investigation modules", "value": "12 of 12"},
             {"key": "completeness_floor", "label": "Human review below completeness",
              "value": "62%"},
             {"key": "gap_block", "label": "Block contest when a mandatory artefact is missing",

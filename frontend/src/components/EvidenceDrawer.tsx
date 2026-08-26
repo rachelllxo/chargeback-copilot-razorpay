@@ -128,10 +128,15 @@ function EvidenceDrawer({ evidence, onClose }: { evidence: Evidence; onClose: ()
 
           {(evidence.referenced_by?.length ?? 0) > 0 && (
             <div className="border-t border-line pt-4">
-              <p className="label mb-2">Used by investigation modules</p>
+              <p className="label mb-2">Used by AI in</p>
               <ul className="space-y-1 text-xs text-ink-2">
                 {evidence.referenced_by!.map((m) => (
-                  <li key={m}>· {m}</li>
+                  <li key={m} className="flex gap-1.5">
+                    <span className="text-positive" aria-hidden>
+                      ✓
+                    </span>
+                    <span>{m}</span>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -142,7 +147,34 @@ function EvidenceDrawer({ evidence, onClose }: { evidence: Evidence; onClose: ()
               <p className="label mb-2">Linked timeline events</p>
               <ul className="space-y-1 text-xs text-ink-2">
                 {evidence.linked_events!.map((m) => (
-                  <li key={m}>· {m}</li>
+                  <li key={m} className="flex gap-1.5">
+                    <span className="text-ink-3" aria-hidden>
+                      →
+                    </span>
+                    <span>{m}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(evidence.related?.length ?? 0) > 0 && (
+            <div className="border-t border-line pt-4">
+              <p className="label mb-2">Related evidence</p>
+              <ul className="space-y-1.5">
+                {evidence.related!.map((r) => (
+                  <li key={`${r.evidence_id}-${r.relationship}`} className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <EvidenceRef id={r.evidence_id} />
+                    <span className="text-ink-3">
+                      {r.relationship === 'contradiction'
+                        ? 'same contradiction analysis'
+                        : r.relationship === 'contradicts'
+                          ? 'contradicts this record'
+                          : r.relationship === 'corroborates'
+                            ? 'corroborates this record'
+                            : r.relationship}
+                    </span>
+                  </li>
                 ))}
               </ul>
             </div>

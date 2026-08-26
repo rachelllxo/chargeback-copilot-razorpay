@@ -110,6 +110,61 @@ def test_internal_record_conflict_is_detected() -> None:
     assert any(c["type"] == "Conflicting internal records" for c in conflicts)
 
 
+def test_conflict_is_cited_and_interpreted() -> None:
+    c = client.get("/api/disputes/CB-2026-89101").json()["conflicts"][0]
+    assert c["claim"] == "I never received the product."
+    assert c["confidence"] > 0
+    assert "EVD-1042" in c["interpretation"]
+    assert "EVD-1044" in c["interpretation"]
+    assert "EVD-1042" in c["evidence_ids"] and "EVD-1044" in c["evidence_ids"]
+
+
+def test_completeness_detail_explains_the_score() -> None:
+    detail = client.get("/api/disputes/CB-2026-89101").json()
+    cd = detail["assessment"]["completeness_detail"]
+    assert cd["score"] == detail["assessment"]["evidence_completeness"] == 91
+    names = {x["name"] for x in cd["available"]}
+    assert "Delivery record" in names and "Payment authorisation" in names
+    assert any("Signed delivery confirmation" in x["name"] for x in cd["missing"])
+    # every "available" row points at a real record on the case
+    evidence = {e["evidence_id"] for e in client.get("/api/disputes/CB-2026-89101/evidence").json()["items"]}
+    assert all(x["evidence_id"] in evidence for x in cd["available"])
+
+
+def test_timeline_flags_contradiction_events() -> None:
+    events = {e["title"]: e["conflicting"] for e in
+              client.get("/api/disputes/CB-2026-89101/timeline").json()["events"]}
+    assert events.get("Order delivered") is True
+    assert events.get("Customer contacted support") is True
+    assert events.get("Payment captured") is False
+    assert events.get("Chargeback initiated") is False
+
+
+def test_evidence_is_linked_to_related_records() -> None:
+    items = {e["evidence_id"]: e for e in
+             client.get("/api/disputes/CB-2026-89101/evidence").json()["items"]}
+    related = {r["evidence_id"]: r["relationship"] for r in items["EVD-1042"]["related"]}
+    assert related.get("EVD-1044") == "contradiction"
+    assert items["EVD-1042"]["referenced_by"]
+    assert items["EVD-1042"]["linked_events"]
+
+
+def test_module_labels_reflect_spec_pipeline() -> None:
+    labels = [m["label"] for m in
+              client.get("/api/disputes/CB-2026-89101").json()["modules"]]
+    for expected in ["Customer Interaction Analysis", "Historical Case Analysis", "Evidence Correlation",
+                     "Timeline Reconstruction", "Contradiction Detection", "Risk Assessment",
+                     "Policy Analysis"]:
+        assert expected in labels
+
+
+def test_copilot_why_answer_cites_conflict_records() -> None:
+    answer = client.post("/api/disputes/CB-2026-89101/copilot",
+                         json={"question": "Why are you recommending contest?"}).json()
+    assert "EVD-1042" in answer["evidence_ids"]
+    assert any("conflicts with the stated claim" in l for l in answer["lines"])
+
+
 # -------------------------------------------------------------------- copilot
 
 def test_copilot_answers_are_grounded_in_case_evidence() -> None:

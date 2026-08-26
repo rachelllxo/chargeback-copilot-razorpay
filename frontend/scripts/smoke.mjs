@@ -17,8 +17,9 @@ const nativeFetch = globalThis.fetch.bind(globalThis)
 const routes = [
   ['/', ['Priority disputes', 'Amount at risk', 'CB-2026-89101']],
   ['/disputes', ['Dispute ID', 'Recommendation', 'CB-2026-89108']],
-  ['/disputes/CB-2026-89101', ['Customer claim', 'AI assessment', 'Contest', '94%', '91%', 'Copilot',
-    'Reconstructed timeline', 'Potential contradiction', 'Evidence gaps', 'Human review']],
+  ['/disputes/CB-2026-89101', ['Customer claim', 'AI case assessment', 'Contest', '94%', '91%', 'Copilot',
+    'Reconstructed timeline', 'Contradiction detected', 'AI interpretation', 'Evidence gaps',
+    'Human review', 'Case investigation', '91% complete']],
   ['/disputes/CB-2026-89112', ['No material contradictions detected']],
   ['/investigations', ['Awaiting human approval', 'Pipeline']],
   ['/evidence', ['Evidence ID', 'Availability']],

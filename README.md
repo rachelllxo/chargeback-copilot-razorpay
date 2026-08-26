@@ -91,8 +91,8 @@ cd frontend && npm ci && npm run build && cd ..
 ```
 backend/app/
   data.py        Synthetic dataset: 14 cases, each with its own evidence relationships
-  engine.py      Investigation orchestrator + 11 functional modules, correlation,
-                 timeline reconstruction, conflict detection, gap analysis, scoring
+  engine.py      Investigation orchestrator + 12 functional modules, correlation,
+                 timeline reconstruction, contradiction detection, gap analysis, scoring
   ai_service.py  AIService abstraction: investigate / correlate / assess / explain /
                  package / copilot. Deterministic; degrades gracefully with no LLM
   store.py       SQLite (PostgreSQL when DATABASE_URL is set) for operator decisions
@@ -107,8 +107,12 @@ frontend/src/
 
 ### Investigation modules
 
-`Transaction · Order · Fulfillment · Delivery · Customer · Refund · Historical · Policy`
-followed by `Evidence Correlation · Timeline Reconstruction · Conflict Detection · Risk Synthesis`.
+`Transaction · Order · Fulfillment · Delivery · Customer interaction · Refund · Historical · Policy`
+followed by `Evidence Correlation · Timeline Reconstruction · Contradiction Detection · Risk Assessment`.
+
+Every conclusion the UI shows is traceable: each module returns the evidence IDs it used,
+each conflict carries an auditable interpretation with cited records, and each evidence
+record links back to the modules and timeline events that used it.
 
 Each module returns a structured finding:
 

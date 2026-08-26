@@ -1,7 +1,15 @@
-import { useState } from 'react'
+import { createContext, useContext, useState, type ReactNode } from 'react'
 import { api, ApiError } from '../lib/api'
 import type { EvidencePackage, PackageSection } from '../lib/types'
 import { ErrorBlock, Modal, Pill, Spinner, useToast } from './ui'
+
+interface PackageCtx {
+  open: () => void
+}
+
+const Ctx = createContext<PackageCtx>({ open: () => {} })
+
+export const usePackage = () => useContext(Ctx)
 
 function SectionBody({ section }: { section: PackageSection }) {
   if (section.kind === 'fields') {
@@ -76,7 +84,16 @@ function toPlainText(pkg: EvidencePackage): string {
   return lines.join('\n')
 }
 
-export function EvidencePackagePanel({ disputeId }: { disputeId: string }) {
+export function EvidencePackageButton() {
+  const { open } = usePackage()
+  return (
+    <button type="button" className="btn-primary" onClick={open}>
+      Generate evidence package
+    </button>
+  )
+}
+
+export function PackageProvider({ disputeId, children }: { disputeId: string; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [pkg, setPkg] = useState<EvidencePackage | null>(null)
   const [loading, setLoading] = useState(false)
@@ -114,11 +131,8 @@ export function EvidencePackagePanel({ disputeId }: { disputeId: string }) {
   }
 
   return (
-    <>
-      <button type="button" className="btn-primary" onClick={generate}>
-        Generate evidence package
-      </button>
-
+    <Ctx.Provider value={{ open: () => setOpen(true) }}>
+      {children}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -172,6 +186,6 @@ export function EvidencePackagePanel({ disputeId }: { disputeId: string }) {
           </article>
         )}
       </Modal>
-    </>
+    </Ctx.Provider>
   )
 }

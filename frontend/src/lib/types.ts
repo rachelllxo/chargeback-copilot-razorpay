@@ -52,6 +52,12 @@ export interface Evidence {
   weight?: number
   referenced_by?: string[]
   linked_events?: string[]
+  related?: { evidence_id: string; relationship: string }[]
+}
+
+export interface RelatedEvidence {
+  evidence_id: string
+  relationship: string
 }
 
 export interface TimelineEvent {
@@ -65,6 +71,7 @@ export interface TimelineEvent {
   date_label: string
   time_label: string
   iso: string
+  conflicting?: boolean
   evidence?: Evidence[]
 }
 
@@ -78,7 +85,11 @@ export interface Conflict {
   conflict_id: string
   type: string
   severity: 'high' | 'medium' | 'low'
+  confidence?: number
+  relevance?: 'high' | 'medium' | 'low'
+  claim?: string
   summary: string
+  interpretation?: string
   lines: ConflictLine[]
   why_it_matters: string
   evidence_ids: string[]
@@ -99,11 +110,18 @@ export interface Factor {
   relevance: string
 }
 
+export interface CompletenessDetail {
+  score: number
+  available: { name: string; evidence_id: string; source: string }[]
+  missing: { name: string; evidence_id?: string; availability: string }[]
+}
+
 export interface Assessment {
   recommendation: Recommendation
   recommendation_label: string
   confidence: number
   evidence_completeness: number
+  completeness_detail: CompletenessDetail
   case_strength: string
   merchant_weight: number
   customer_weight: number
