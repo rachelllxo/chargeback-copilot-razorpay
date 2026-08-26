@@ -1,0 +1,22 @@
+# One-click deploy on Render: Dashboard → New → Blueprint → pick this repo.
+#
+# Defaults to the free plan so it costs nothing to stand up. Operator decisions
+# are written to SQLite in /tmp, which Render clears when the service restarts —
+# fine for a demo. To keep them, switch `plan` to `starter` and uncomment the
+# disk block below (a disk is not available on the free plan).
+services:
+  - type: web
+    name: chargeback-copilot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: CHARGEBACK_COPILOT_DB
+        value: /tmp/copilot.db
+    # disk:
+    #   name: decisions
+    #   mountPath: /data
+    #   sizeGB: 1
