@@ -115,6 +115,7 @@ class AIService:
                       and e["availability"] != "unavailable"] or ["None."]},
             {"title": "12. Evidence gaps", "kind": "list",
              "body": [f"{g['missing']} — {g['why_it_matters']} ({g['availability']})"
+                      + (f" [record: {g['evidence_id']}]" if g.get("evidence_id") else "")
                       for g in state["gaps"]] or ["No material gaps identified."]},
             {"title": "13. Case assessment", "kind": "fields", "body": [
                 ["Recommendation", a["recommendation_label"].upper()],
@@ -148,24 +149,75 @@ class AIService:
     def _recommended_response(self, state: dict) -> str:
         a = state["assessment"]
         d = state["dispute"]
+        gaps = state["gaps"]
         if a["recommendation"] == "CONTEST":
-            return (
-                f"Submit a representment for {fmt_amount(d['amount'])} citing the evidence in sections 4–9, "
-                f"leading with {', '.join(f['evidence_id'] for f in a['supporting_factors'][:3])}. "
-                "Attach the timeline as the chronology exhibit and disclose the gaps in section 12 rather "
-                "than omitting them."
-            )
+            lead = a["supporting_factors"][:3]
+            parts = [
+                f"Submit a representment for {fmt_amount(d['amount'])} citing the records that establish "
+                "the disputed facts."
+            ]
+            if lead:
+                parts.append(
+                    "Lead with " + "; ".join(
+                        f"{f['evidence_id']} ({f['text']})" for f in lead
+                    ) + "."
+                )
+            if state["conflicts"]:
+                c = state["conflicts"][0]
+                parts.append(
+                    f"Address the contradiction directly: the cardholder claim is not supported by the "
+                    f"record — {c['interpretation']}"
+                )
+            if gaps:
+                parts.append(
+                    "Disclose the gaps rather than omitting them: "
+                    + "; ".join(
+                        f"{g['missing']}"
+                        + (f" ({g['evidence_id']})" if g.get("evidence_id") else "")
+                        for g in gaps
+                    )
+                    + ". The response must not claim a record exists when it does not."
+                )
+            return " ".join(parts)
         if a["recommendation"] == "ACCEPT":
-            return (
-                f"Accept the dispute for {fmt_amount(d['amount'])} and process the credit. Record the "
-                "root cause against the fulfilment or refund process identified in sections 6 and 12 so the "
-                "failure is not repeated."
+            against = a["contradicting_factors"][:3]
+            parts = [f"Accept the dispute for {fmt_amount(d['amount'])} and process the credit."]
+            if against:
+                parts.append(
+                    "The case record supports the cardholder: "
+                    + "; ".join(f"{f['evidence_id']} ({f['text']})" for f in against)
+                    + "."
+                )
+            if gaps:
+                parts.append(
+                    "No representment should be filed while the following evidence is missing: "
+                    + ", ".join(
+                        f"{g['missing']}"
+                        + (f" ({g['evidence_id']})" if g.get("evidence_id") else "")
+                        for g in gaps
+                    )
+                    + "."
+                )
+            return " ".join(parts)
+        blockers = [g for g in gaps if g["weight"] >= 2.0] or gaps[:2]
+        parts = [
+            "Hold for operator decision before submission — the evidence is not conclusive and the "
+            "missing artefacts prevent a defensible response."
+        ]
+        if blockers:
+            parts.append(
+                "Request the outstanding records: "
+                + "; ".join(
+                    f"{g['missing']}"
+                    + (f" ({g['evidence_id']})" if g.get("evidence_id") else "")
+                    for g in blockers
+                )
+                + "."
             )
-        return (
-            "Hold for operator decision. The evidence is not conclusive and at least one material artefact "
-            "is missing; request the outstanding records listed in section 12 before the deadline and "
-            "re-run the investigation if they arrive."
+        parts.append(
+            "Re-run the investigation when they arrive; do not submit a response on the current record."
         )
+        return " ".join(parts)
 
     # -- copilot ----------------------------------------------------------
     SUGGESTIONS = [
@@ -207,11 +259,16 @@ class AIService:
                 for f in secondary[:2]:
                     lines.append(f"• {f['text']} [{f['evidence_id']}]")
             for g in state["gaps"][:2]:
-                lines.append(f"• Gap: {g['missing']} — {g['why_it_matters']}")
+                lines.append(
+                    f"• Gap: {g['missing']}"
+                    + (f" [{g['evidence_id']}]" if g.get("evidence_id") else "")
+                    + f" — {g['why_it_matters']}"
+                )
+            gap_evidence = [g["evidence_id"] for g in state["gaps"] if g.get("evidence_id")]
             return self._answer(
                 f"Recommendation: {rec.upper()} — {a['confidence']}% confidence, "
                 f"{a['evidence_completeness']}% evidence completeness.",
-                lines, cite(a["supporting_factors"]) + cite(a["contradicting_factors"]), state)
+                lines, cite(a["supporting_factors"]) + cite(a["contradicting_factors"]) + gap_evidence, state)
 
         if re.search(r"strongest|best evidence|strong evidence|key evidence", q):
             top = [e for e in state["evidence"] if e["availability"] != "unavailable"][:4]
@@ -244,10 +301,12 @@ class AIService:
         if re.search(r"missing|gap|don't have|do not have|unavailable", q):
             if not state["gaps"]:
                 return self._answer("No material evidence gaps were identified for this case.", [], [], state)
+            gap_evidence = [g["evidence_id"] for g in state["gaps"] if g.get("evidence_id")]
             return self._answer(
                 f"{len(state['gaps'])} evidence gap(s) identified:",
                 [f"• {g['missing']} — {g['why_it_matters']} (Availability: {g['availability']})"
-                 for g in state["gaps"]], [], state)
+                 + (f" [{g['evidence_id']}]" if g.get("evidence_id") else "")
+                 for g in state["gaps"]], gap_evidence, state)
 
         if re.search(r"timeline|chronolog|sequence|what happened|when", q):
             return self._answer(
@@ -259,19 +318,32 @@ class AIService:
                 [e for t in state["timeline"] for e in t["evidence_ids"]], state)
 
         if re.search(r"include|response|package|submit|what should i", q):
+            if a["recommendation"] == "CONTEST":
+                cited = [f["evidence_id"] for f in a["supporting_factors"][:3]]
+            elif a["recommendation"] == "ACCEPT":
+                cited = [f["evidence_id"] for f in a["contradicting_factors"][:3]]
+            else:
+                cited = [g["evidence_id"] for g in state["gaps"] if g.get("evidence_id")]
+            cited += [g["evidence_id"] for g in state["gaps"] if g.get("evidence_id")]
             return self._answer(
                 "Recommended response content:",
                 [self._recommended_response(state),
                  "The generated evidence package assembles this into 15 sections, including the gaps."],
-                [f["evidence_id"] for f in a["supporting_factors"][:3]], state)
+                cited, state)
 
         if re.search(r"weaken|risk|against us|lose|downside|counter", q):
             lines = [f"• {f['text']} [{f['evidence_id']}]" for f in a["contradicting_factors"]]
-            lines += [f"• Gap: {g['missing']} — {g['why_it_matters']}" for g in state["gaps"]]
+            lines += [
+                f"• Gap: {g['missing']}"
+                + (f" [{g['evidence_id']}]" if g.get("evidence_id") else "")
+                + f" — {g['why_it_matters']}"
+                for g in state["gaps"]
+            ]
+            gap_evidence = [g["evidence_id"] for g in state["gaps"] if g.get("evidence_id")]
             if not lines:
                 lines = ["No contradicting evidence and no material gaps are recorded for this case."]
             return self._answer("Factors that could weaken this case:", lines,
-                                cite(a["contradicting_factors"]), state)
+                                cite(a["contradicting_factors"]) + gap_evidence, state)
 
         if re.search(r"claim|customer say|cardholder", q):
             return self._answer(

@@ -891,7 +891,10 @@ export default function DisputeDetailPage() {
                     <li key={g.missing} className="grid gap-2 py-3.5 sm:grid-cols-[16rem_1fr_8rem] sm:gap-6">
                       <div>
                         <p className="text-sm font-medium text-ink">{g.missing}</p>
-                        <p className="mt-0.5 text-2xs text-ink-3">Missing</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className="text-2xs text-ink-3">Missing</span>
+                          {g.evidence_id && <EvidenceRef id={g.evidence_id} />}
+                        </div>
                       </div>
                       <p className="text-sm text-ink-2">{g.why_it_matters}</p>
                       <div className="sm:text-right">

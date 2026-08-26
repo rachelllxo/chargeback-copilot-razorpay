@@ -406,13 +406,14 @@ def analytics() -> dict[str, Any]:
     won = len([r for r in closed_rows if r["status"] == "Won"])
     outcome_rate = round(100 * won / len(closed_rows)) if closed_rows else 0
 
+    evidence_records = sum(r["evidence_count"] for r in rows)
     return {
         "metrics": [
             {"label": "Dispute volume", "value": str(len(rows)), "sub": "Last 30 days"},
             {"label": "Disputed amount", "value": f"₹{total_amount / 100000:.2f}L",
              "sub": fmt_amount(total_amount)},
-            {"label": "Avg. investigation time", "value": "38s",
-             "sub": "Retrieval to assessment, median"},
+            {"label": "Evidence records correlated", "value": str(evidence_records),
+             "sub": "Across all disputes, deduplicated"},
             {"label": "Evidence completeness",
              "value": f"{round(sum(r['evidence_completeness'] for r in rows) / len(rows))}%",
              "sub": "Weighted across all cases"},

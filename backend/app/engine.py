@@ -345,11 +345,18 @@ def _cite(e: dict) -> str:
 
 
 def _interpret_claim(dispute: dict, proving: list[dict], corroborating: list[dict]) -> str:
-    cited = " while ".join(_cite(e) for e in (proving[:2] + corroborating[:1]))
+    cited_records = proving[:2] + corroborating[:1]
+    cited = " while ".join(_cite(e) for e in cited_records)
     cited = cited[0].upper() + cited[1:]
+    if len(cited_records) > 1:
+        source_note = (
+            "These records come from independent systems and are consistent with each other, but not "
+            "with the claim as filed"
+        )
+    else:
+        source_note = "This record is consistent with the rest of the case file, but not with the claim as filed"
     return (
-        f"The available evidence conflicts with the stated claim. {cited}. These records come from "
-        "independent systems and are consistent with each other, but not with the claim as filed — so "
+        f"The available evidence conflicts with the stated claim. {cited}. {source_note} — so "
         "the cardholder's version of events is not supported by the case record."
     )
 
@@ -460,21 +467,60 @@ def detect_conflicts(case: dict) -> list[dict]:
 
 
 def identify_missing_evidence(case: dict) -> list[dict]:
+    """Gaps are the authored missing-artefact list, enriched with the specific
+    record that documents the absence when one exists (e.g. an unavailable
+    'Signed delivery confirmation' record backs the 'Signed delivery
+    confirmation' gap), so every gap is traceable to a record ID."""
     gaps = [dict(g) for g in case["gaps"]]
     for e in case["evidence"]:
+        if e["availability"] == "available":
+            continue
+        matched = None
+        for g in gaps:
+            if _same_artefact(g["missing"], e["evidence_type"]) or _same_artefact(
+                g["missing"], e["description"]
+            ):
+                matched = g
+                break
+        if matched is not None:
+            if not matched.get("evidence_id"):
+                matched["evidence_id"] = e["evidence_id"]
+            continue
+        # A record that is completely unavailable and has no authored gap yet.
         if e["availability"] == "unavailable":
-            if not any(g["missing"].lower() in e["description"].lower()
-                       or e["evidence_type"].lower() in g["missing"].lower() for g in gaps):
-                gaps.append({
-                    "missing": e["evidence_type"],
-                    "why_it_matters": e["finding"],
-                    "weight": RELEVANCE_WEIGHT[e["relevance"]] * 0.5,
-                    "availability": "Not available",
-                    "evidence_id": e["evidence_id"],
-                })
+            gaps.append({
+                "missing": e["evidence_type"],
+                "why_it_matters": e["finding"],
+                "weight": RELEVANCE_WEIGHT[e["relevance"]] * 0.5,
+                "availability": "Not available",
+                "evidence_id": e["evidence_id"],
+            })
     for g in gaps:
         g["impact"] = "high" if g["weight"] >= 2.0 else "medium" if g["weight"] >= 1.2 else "low"
+    gaps.sort(key=lambda g: (-g["weight"], g["missing"]))
     return gaps
+
+
+_GAP_STOPWORDS = {"a", "an", "and", "at", "for", "from", "in", "is", "of", "on", "or", "the", "to", "with"}
+
+
+def _is_word(ch: str) -> bool:
+    return ch.isalnum() or ch.isspace()
+
+
+def _gap_words(text: str) -> set[str]:
+    cleaned = "".join(ch if _is_word(ch) else " " for ch in text.lower())
+    return {w for w in cleaned.split() if w and w not in _GAP_STOPWORDS}
+
+
+def _same_artefact(a: str, b: str) -> bool:
+    """Conservative match between a missing-artefact name and an evidence type:
+    all non-stop words of the shorter name must appear in the longer one."""
+    wa, wb = _gap_words(a), _gap_words(b)
+    if not wa or not wb:
+        return a.lower() in b.lower() or b.lower() in a.lower()
+    shorter, longer = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+    return shorter <= longer
 
 
 def evidence_strength(case: dict) -> list[dict]:

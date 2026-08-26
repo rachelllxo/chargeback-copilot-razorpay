@@ -165,6 +165,109 @@ def test_copilot_why_answer_cites_conflict_records() -> None:
     assert any("conflicts with the stated claim" in l for l in answer["lines"])
 
 
+# ---------------------------------------------------------- traceability audit
+
+def test_gaps_link_to_the_records_that_document_them() -> None:
+    """A gap must carry the evidence_id of the record that proves it is missing."""
+    flagship = {g["missing"]: g for g in client.get("/api/disputes/CB-2026-89101").json()["gaps"]}
+    assert flagship["Signed delivery confirmation"]["evidence_id"] == "EVD-1049"
+
+    blocked = {g["missing"]: g for g in client.get("/api/disputes/CB-2026-89104").json()["gaps"]}
+    assert blocked["Proof of delivery from the courier"]["evidence_id"] == "EVD-4012"
+    assert blocked["Courier trace investigation report"]["evidence_id"] == "EVD-4013"
+
+    # linked gaps are never duplicated as extra entries
+    assert len(client.get("/api/disputes/CB-2026-89104").json()["gaps"]) == 3
+    other = {g["missing"]: g for g in client.get("/api/disputes/CB-2026-89103").json()["gaps"]}
+    assert other["Packing-bench photograph"]["evidence_id"] == "EVD-3013"
+    assert "Dispatch imagery" not in other
+
+
+def test_missing_evidence_answer_cites_the_gap_records() -> None:
+    answer = client.post("/api/disputes/CB-2026-89101/copilot",
+                         json={"question": "What evidence is missing?"}).json()
+    assert "EVD-1049" in answer["evidence_ids"]
+    assert any("Signed delivery confirmation" in l and "EVD-1049" in l for l in answer["lines"])
+
+
+def test_weaken_answer_cites_gap_records() -> None:
+    answer = client.post("/api/disputes/CB-2026-89101/copilot",
+                         json={"question": "What could weaken this case?"}).json()
+    assert "EVD-1049" in answer["evidence_ids"]
+
+
+def test_response_citations_follow_the_recommendation() -> None:
+    contest = client.post("/api/disputes/CB-2026-89101/copilot",
+                          json={"question": "Generate my response."}).json()
+    assert set(contest["evidence_ids"]) >= {"EVD-1040", "EVD-1039", "EVD-1042"}
+    assert "EVD-1049" in contest["evidence_ids"]
+
+    accept = client.post("/api/disputes/CB-2026-89102/copilot",
+                         json={"question": "Generate my response."}).json()
+    assert "EVD-2013" in accept["evidence_ids"]
+    assert "EVD-2010" not in accept["evidence_ids"][:3] or "EVD-2013" in accept["evidence_ids"][:3]
+
+    human = client.post("/api/disputes/CB-2026-89104/copilot",
+                        json={"question": "Generate my response."}).json()
+    assert "EVD-4012" in human["evidence_ids"] and "EVD-4013" in human["evidence_ids"]
+
+
+def test_recommended_response_is_case_specific_not_template() -> None:
+    def response(did: str) -> str:
+        return client.post(f"/api/disputes/{did}/evidence-package", json={}).json()[
+            "sections"][-1]["body"][0]
+
+    assert "EVD-2013" in response("CB-2026-89102")
+    assert "EVD-4012" in response("CB-2026-89104")
+    assert "EVD-1049" in response("CB-2026-89101")
+
+
+def test_three_cases_have_distinct_investigation_outcomes() -> None:
+    """Three dispute types must produce meaningfully different, case-derived results."""
+    rows = {r["dispute_id"]: r for r in client.get("/api/disputes").json()["results"]}
+    a = {did: client.get(f"/api/disputes/{did}").json() for did in
+         ["CB-2026-89101", "CB-2026-89102", "CB-2026-89104"]}
+
+    recs = {did: d["assessment"]["recommendation"] for did, d in a.items()}
+    assert recs == {"CB-2026-89101": "CONTEST", "CB-2026-89102": "ACCEPT",
+                    "CB-2026-89104": "HUMAN_REVIEW"}
+
+    signatures = {
+        did: (d["assessment"]["confidence"], d["assessment"]["evidence_completeness"],
+              len(d["conflicts"]), tuple(d["dispute"]["reason"] for _ in [0]),
+              tuple(g["missing"] for g in d["gaps"]),
+              tuple(m["finding"] for m in d["modules"]))
+        for did, d in a.items()
+    }
+    assert len(set(signatures.values())) == 3
+
+    # evidence actually differs and the copilot reads it
+    ev_counts = {did: len(d["gaps"]) for did, d in a.items()}
+    assert ev_counts == {"CB-2026-89101": 2, "CB-2026-89102": 2, "CB-2026-89104": 3}
+    answers = {
+        did: client.post(f"/api/disputes/{did}/copilot",
+                         json={"question": "What is the strongest evidence?"}).json()["evidence_ids"]
+        for did in a
+    }
+    assert all(set(v) for v in answers.values())
+    assert len(set(tuple(v) for v in answers.values())) == 3
+
+    pkg_responses = {
+        did: client.post(f"/api/disputes/{did}/evidence-package", json={}).json()["sections"][-1]["body"][0]
+        for did in a
+    }
+    assert len(set(pkg_responses.values())) == 3
+
+
+def test_analytics_metrics_are_derived_not_hardcoded() -> None:
+    analytics = client.get("/api/analytics").json()
+    labels = {m["label"] for m in analytics["metrics"]}
+    assert "Avg. investigation time" not in labels
+    records = next(m for m in analytics["metrics"] if m["label"] == "Evidence records correlated")
+    rows = client.get("/api/disputes").json()["results"]
+    assert records["value"] == str(sum(r["evidence_count"] for r in rows))
+
+
 # -------------------------------------------------------------------- copilot
 
 def test_copilot_answers_are_grounded_in_case_evidence() -> None:
